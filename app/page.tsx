@@ -1,9 +1,9 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-const bgUrl = "/background.jpg";      // 页面总背景
-const popupBgUrl = "/popup.jpg";      // 弹窗背景
-const audioUrl = "/1.mp3";            // 音频
+const bgUrl = "/background.jpg";
+const popupBgUrl = "/popup.jpg";
+const audioUrl = "/1.mp3";
 
 const messages = [
   "聿，我们现在，算真夫妻了吗？",
@@ -35,7 +35,7 @@ const messages = [
   "这些记忆太过渺小，可你依旧是唯一。",
   "如果奇迹照拂你，让我做第一个为你鼓掌的人。",
   "聿，你看见我了吗？"
-];
+] as const;
 
 const POPUP_MIN_WIDTH = 180;
 const POPUP_MAX_WIDTH = 260;
@@ -65,15 +65,16 @@ function drawRoundRect(
 
 export default function Page() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const popupsRef = useRef<any[]>([]);
-  const animationRef = useRef<number>(null);
-  const timerRef = useRef<number>(null);
+  const animationRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const [audioStarted, setAudioStarted] = useState(false);
 
+  // 只设置音量，不自动播放
   useEffect(() => {
-    const audio = document.getElementById("bgMusic") as HTMLAudioElement | null;
-    if (audio) {
-      audio.volume = 0.26;
-      audio.play().catch(() => {});
+    if (audioRef.current) {
+      audioRef.current.volume = 0.26;
     }
   }, []);
 
@@ -91,18 +92,15 @@ export default function Page() {
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
-    // 预加载总背景和弹窗背景图片
     const bgImg = new window.Image();
     bgImg.src = bgUrl;
     const popupImg = new window.Image();
     popupImg.src = popupBgUrl;
 
-    // 渲染动画
     function render() {
       if (!canvas || !ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 画背景
       if (bgImg.complete && bgImg.width && bgImg.height) {
         ctx.globalAlpha = 1;
         ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
@@ -116,16 +114,18 @@ export default function Page() {
         ctx.translate(popup.x, popup.y);
         ctx.rotate((popup.angle * Math.PI) / 180);
         ctx.globalAlpha = 0.98;
-        // 圆角裁剪
+
         ctx.save();
         drawRoundRect(ctx, 0, 0, popup.width, POPUP_HEIGHT, 18);
         ctx.clip();
 
-        // 裁切 popup.jpg，比例无压缩
         if (popupImg.complete && popupImg.width && popupImg.height) {
           const imgAspect = popupImg.width / popupImg.height;
           const popupAspect = popup.width / POPUP_HEIGHT;
-          let sx = 0, sy = 0, sWidth = popupImg.width, sHeight = popupImg.height;
+          let sx = 0,
+            sy = 0,
+            sWidth = popupImg.width,
+            sHeight = popupImg.height;
           if (imgAspect > popupAspect) {
             sWidth = popupImg.height * popupAspect;
             sx = (popupImg.width - sWidth) / 2;
@@ -134,8 +134,15 @@ export default function Page() {
             sy = (popupImg.height - sHeight) / 2;
           }
           ctx.drawImage(
-            popupImg, sx, sy, sWidth, sHeight,
-            0, 0, popup.width, POPUP_HEIGHT
+            popupImg,
+            sx,
+            sy,
+            sWidth,
+            sHeight,
+            0,
+            0,
+            popup.width,
+            POPUP_HEIGHT
           );
         } else {
           ctx.fillStyle = "rgba(38,58,86, 0.86)";
@@ -143,10 +150,10 @@ export default function Page() {
         }
         ctx.restore();
 
-        // 文字+阴影
         ctx.shadowColor = "rgba(0,0,0,0.50)";
         ctx.shadowBlur = 8;
-        ctx.font = "600 20px 'PingFang SC','Inter','Helvetica Neue',Arial,sans-serif";
+        ctx.font =
+          "600 20px 'PingFang SC','Inter','Helvetica Neue',Arial,sans-serif";
         ctx.fillStyle = "#edf4ff";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -163,10 +170,9 @@ export default function Page() {
     }
     render();
 
-    // ========== 动态加速弹窗定时器 ==========
-    let interval = 1200;      // 初始弹窗间隔
-    const minInterval = 120;  // 最快弹窗间隔
-    const decay = 0.97;       // 加速倍率，自己可调（越接近1加速越慢）
+    let interval = 1200;
+    const minInterval = 120;
+    const decay = 0.97;
 
     function bomb() {
       if (!canvas) return;
@@ -185,7 +191,6 @@ export default function Page() {
       timerRef.current = window.setTimeout(bomb, interval);
     }
 
-    // 启动弹窗轰炸
     bomb();
 
     return () => {
@@ -195,24 +200,44 @@ export default function Page() {
     };
   }, []);
 
-  return (
-    <div
-      style={{
-        position: "fixed",
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-        minHeight: "100vh",
-        minWidth: "100vw",
-        overflow: "hidden",
-      }}
-    >
-      <audio id="bgMusic" loop autoPlay src={audioUrl} />
-      <canvas
-        ref={canvasRef}
-        style={{ width: "100vw", height: "100vh", display: "block" }}
-      />
-    </div>
-  );
+  // 点击解锁音频（整个全屏都可点）
+  const handleStartAudio = () => {
+    if (!audioRef.current) return;
+    const playPromise = audioRef.current.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      playPromise
+        .then(() => {
+          setAudioStarted(true);
+        })
+        .catch(() => {
+          alert("浏览器拦截了音乐播放，请检查浏览器设置或再点一次～");
+        });
+    } else {
+      setAudioStarted(true);
+    }
+  };
+
+return (
+  <div
+    onClick={handleStartAudio}
+    style={{
+      position: "fixed",
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      minHeight: "100vh",
+      minWidth: "100vw",
+      overflow: "hidden",
+    }}
+  >
+    <audio ref={audioRef} id="bgMusic" loop src={audioUrl} />
+
+    <canvas
+      ref={canvasRef}
+      style={{ width: "100vw", height: "100vh", display: "block" }}
+    />
+  </div>
+);
+
 }
