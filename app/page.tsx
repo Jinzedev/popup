@@ -34,7 +34,7 @@ const messages = [
   "我的十分真心，被你当作的三分假意，都将随着这根火柴燃尽，而云散烟消。",
   "这些记忆太过渺小，可你依旧是唯一。",
   "如果奇迹照拂你，让我做第一个为你鼓掌的人。",
-  "聿，你看见我了吗？"
+  "聿，你看见我了吗？",
 ] as const;
 
 const POPUP_MIN_WIDTH = 180;
@@ -66,7 +66,9 @@ function drawRoundRect(
 export default function Page() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const popupsRef = useRef<any[]>([]);
+  const popupsRef = useRef<
+    { x: number; y: number; width: number; angle: number; msg: string }[]
+  >([]);
   const animationRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const [audioStarted, setAudioStarted] = useState(false);
@@ -84,11 +86,23 @@ export default function Page() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // 适配高 DPI，防止文字发糊
     function resizeCanvas() {
       if (!canvas) return;
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      if (!ctx) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const displayWidth = window.innerWidth;
+      const displayHeight = window.innerHeight;
+
+      canvas.style.width = displayWidth + "px";
+      canvas.style.height = displayHeight + "px";
+      canvas.width = displayWidth * dpr;
+      canvas.height = displayHeight * dpr;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
@@ -98,20 +112,49 @@ export default function Page() {
     popupImg.src = popupBgUrl;
 
     function render() {
-      if (!canvas || !ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!canvas) return;
+      if (!ctx) return;
 
+      const cw = canvas.width / (window.devicePixelRatio || 1);
+      const ch = canvas.height / (window.devicePixelRatio || 1);
+
+      ctx.clearRect(0, 0, cw, ch);
+
+      // 背景：类似 background-size: cover，保持比例不拉伸
       if (bgImg.complete && bgImg.width && bgImg.height) {
+        const iw = bgImg.width;
+        const ih = bgImg.height;
+
+        const canvasRatio = cw / ch;
+        const imgRatio = iw / ih;
+
+        let drawWidth = cw;
+        let drawHeight = ch;
+
+        if (imgRatio > canvasRatio) {
+          // 图比画布宽，按高铺满，两侧裁剪
+          drawHeight = ch;
+          drawWidth = ch * imgRatio;
+        } else {
+          // 图比画布窄，按宽铺满，上下裁剪
+          drawWidth = cw;
+          drawHeight = cw / imgRatio;
+        }
+
+        const dx = (cw - drawWidth) / 2;
+        const dy = (ch - drawHeight) / 2;
+
         ctx.globalAlpha = 1;
-        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bgImg, dx, dy, drawWidth, drawHeight);
       } else {
         ctx.fillStyle = "#030a1a";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, cw, ch);
       }
 
+      // 弹窗绘制
       popupsRef.current.forEach((popup) => {
         ctx.save();
-        ctx.translate(popup.x, popup.y);
+        ctx.translate(Math.round(popup.x), Math.round(popup.y));
         ctx.rotate((popup.angle * Math.PI) / 180);
         ctx.globalAlpha = 0.98;
 
@@ -119,6 +162,7 @@ export default function Page() {
         drawRoundRect(ctx, 0, 0, popup.width, POPUP_HEIGHT, 18);
         ctx.clip();
 
+        // popup 背景图，按比例裁剪填充
         if (popupImg.complete && popupImg.width && popupImg.height) {
           const imgAspect = popupImg.width / popupImg.height;
           const popupAspect = popup.width / POPUP_HEIGHT;
@@ -126,6 +170,7 @@ export default function Page() {
             sy = 0,
             sWidth = popupImg.width,
             sHeight = popupImg.height;
+
           if (imgAspect > popupAspect) {
             sWidth = popupImg.height * popupAspect;
             sx = (popupImg.width - sWidth) / 2;
@@ -133,6 +178,7 @@ export default function Page() {
             sHeight = popupImg.width / popupAspect;
             sy = (popupImg.height - sHeight) / 2;
           }
+
           ctx.drawImage(
             popupImg,
             sx,
@@ -150,10 +196,11 @@ export default function Page() {
         }
         ctx.restore();
 
+        // 文字
         ctx.shadowColor = "rgba(0,0,0,0.50)";
         ctx.shadowBlur = 8;
         ctx.font =
-          "600 20px 'PingFang SC','Inter','Helvetica Neue',Arial,sans-serif";
+          "600 22px 'PingFang SC','Inter','Helvetica Neue',Arial,sans-serif";
         ctx.fillStyle = "#edf4ff";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -168,8 +215,10 @@ export default function Page() {
 
       animationRef.current = window.requestAnimationFrame(render);
     }
+
     render();
 
+    // 弹窗轰炸
     let interval = 1200;
     const minInterval = 120;
     const decay = 0.97;
@@ -181,10 +230,14 @@ export default function Page() {
       const width = Math.floor(
         POPUP_MIN_WIDTH + Math.random() * (POPUP_MAX_WIDTH - POPUP_MIN_WIDTH)
       );
-      const x = Math.random() * (canvas.width - width - 10);
-      const y = Math.random() * (canvas.height - POPUP_HEIGHT - 10);
+      const cw = canvas.width / (window.devicePixelRatio || 1);
+      const ch = canvas.height / (window.devicePixelRatio || 1);
+
+      const x = Math.random() * (cw - width - 10);
+      const y = Math.random() * (ch - POPUP_HEIGHT - 10);
       const angle = Math.random() * 36 - 18;
       const msg = messages[Math.floor(Math.random() * messages.length)];
+
       popupsRef.current.push({ x, y, width, angle, msg });
 
       interval = Math.max(minInterval, interval * decay);
@@ -200,7 +253,7 @@ export default function Page() {
     };
   }, []);
 
-  // 点击解锁音频（整个全屏都可点）
+  // 点击解锁音频（整个全屏可点）
   const handleStartAudio = () => {
     if (!audioRef.current) return;
     const playPromise = audioRef.current.play();
@@ -217,27 +270,26 @@ export default function Page() {
     }
   };
 
-return (
-  <div
-    onClick={handleStartAudio}
-    style={{
-      position: "fixed",
-      left: 0,
-      top: 0,
-      right: 0,
-      bottom: 0,
-      minHeight: "100vh",
-      minWidth: "100vw",
-      overflow: "hidden",
-    }}
-  >
-    <audio ref={audioRef} id="bgMusic" loop src={audioUrl} />
+  return (
+    <div
+      onClick={handleStartAudio}
+      style={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        minHeight: "100vh",
+        minWidth: "100vw",
+        overflow: "hidden",
+      }}
+    >
+      <audio ref={audioRef} id="bgMusic" loop src={audioUrl} />
 
-    <canvas
-      ref={canvasRef}
-      style={{ width: "100vw", height: "100vh", display: "block" }}
-    />
-  </div>
-);
-
+      <canvas
+        ref={canvasRef}
+        style={{ width: "100vw", height: "100vh", display: "block" }}
+      />
+    </div>
+  );
 }
